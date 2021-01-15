@@ -1,0 +1,421 @@
+
+
+#include <Arduino.h>
+#include <U8g2lib.h>
+
+#ifdef U8X8_HAVE_HW_SPI
+#include <SPI.h>
+#endif
+#ifdef U8X8_HAVE_HW_I2C
+#include <Wire.h>
+#endif
+
+
+#include "ACS712.h"
+
+#define BUTTON1_PIN 18
+#define BUTTON2_PIN 19
+#define BUTTON3_PIN 23
+
+#define AD1_PIN 33
+#define AD2_PIN 25
+#define AD3_PIN 26
+#define AD4_PIN 27
+#define AD5_PIN 12
+int ADlist[5] = {AD1_PIN,AD2_PIN,AD3_PIN,AD4_PIN,AD5_PIN};
+int ADRMS[5];
+
+
+#define R1_PIN 13
+#define R2_PIN 14
+#define R3_PIN 15
+#define R4_PIN 16
+#define R5_PIN 17
+
+#define MENU_POS_Y 62
+#define MENU_POS_Y_HIDDEN 76
+
+
+
+// Arduino UNO has 5.0 volt with a max ADC value of 1023 steps
+// ACS712 5A  uses 185 mV per A
+// ACS712 20A uses 100 mV per A
+// ACS712 30A uses  66 mV per A
+
+//ACS712  ACS(A0, 5.0, 1023, 100);
+// ESP 32 example (requires resistors to step down the logic voltage)
+ACS712  ACS1(AD1_PIN, 5.0, 4095, 100);
+ACS712  ACS2(AD2_PIN, 5.0, 4095, 100);
+ACS712  ACS3(AD3_PIN, 5.0, 4095, 100);
+ACS712  ACS4(AD4_PIN, 5.0, 4095, 100);
+ACS712  ACS5(AD5_PIN, 5.0, 4095, 100);
+
+
+
+U8G2_SH1106_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
+String SelectMenuItems[3];
+String menuItems1[4][3] = {{"MAIN", "Unit", "SETUP"},{"WATT", "Ampere", "Close"},{"Mode","----","BACK"},{"Total","AVG","ALL"}};
+
+bool testRStatus[5] = {0,1,0,0,1};
+
+int menuActive = 1;
+int menuSelected = 2;
+void setup(void) {
+
+
+  ACS1.autoMidPoint();
+  ACS2.autoMidPoint();
+  ACS3.autoMidPoint();
+  ACS4.autoMidPoint();
+  ACS5.autoMidPoint();
+
+  //按鈕
+  pinMode(BUTTON1_PIN, INPUT_PULLUP);
+  pinMode(BUTTON2_PIN, INPUT_PULLUP);
+  pinMode(BUTTON3_PIN, INPUT_PULLUP);
+
+  //繼電器
+  pinMode(R1_PIN, OUTPUT);
+  pinMode(R2_PIN, OUTPUT);
+  pinMode(R3_PIN, OUTPUT);
+  pinMode(R4_PIN, OUTPUT);
+  pinMode(R5_PIN, OUTPUT);
+ 
+  Serial.begin(9600);
+  
+  u8g2.begin();
+  
+  u8g2.setFont(u8g2_font_9x15B_tf);
+  u8g2.setFontDirection(0);
+  u8g2.firstPage();
+  do {
+    u8g2.setCursor(55, 20);
+    u8g2.print("YU");
+    u8g2.setCursor(28, 40);
+    u8g2.print("WorkShop");
+    
+    u8g2.drawFrame(0,0,128,64);
+  } while ( u8g2.nextPage() );
+  delay(1000);
+  
+  u8g2.setFont(u8g2_font_6x10_tr);
+  
+}
+
+unsigned long OLED_Sleep_timer = millis();
+bool SleepMode = false;
+int Cmenu = 0; //頁面選擇
+int StatusMode = 1;
+int ADreads = 0;
+unsigned long start_timeloop = millis();
+int nnni=0 ;
+
+int mainStatusDisplayMode = 1;
+
+void loop(void) {
+  u8g2.firstPage();
+  
+  do {
+    int sss;
+    sss = drawMenuBar(menuItems1[Cmenu]);
+    if (sss!=-1 ){
+      switch (Cmenu){
+        case 0: //頁面0
+          if (sss==2){
+            Cmenu = 1;
+          }
+          if (sss==1){
+            Cmenu = 2;
+          }
+        break;
+        case 1://頁面1
+          if (sss==3){
+            Cmenu = 0;
+          }else if (sss==1){
+            StatusMode = 1;
+          }else if (sss==2){
+            StatusMode = 2;
+          }
+        break;
+        case 2://頁面2
+          if (sss==3){
+            Cmenu = 0;
+          }else if (sss==1){
+            Cmenu = 3;
+          }else if (sss==2){
+            
+          }
+        break;
+        case 3: //頁面2
+          if (sss==3){
+            mainStatusDisplayMode = 3;
+          }else if (sss==1){
+            mainStatusDisplayMode = 1;
+          }else if (sss==2){
+            mainStatusDisplayMode = 2;
+          }
+          Cmenu = 0;
+        break;
+      }
+    }
+    ReadACS();//電流讀取
+
+    switch (mainStatusDisplayMode){
+      case 1:
+        drawSUMStatus();//電壓電流狀態
+      break;
+      case 2:
+        drawAVGStatus();//電壓電流狀態
+      break;
+      case 3:
+        drawALLStatus();//電壓電流狀態
+      break;
+    }
+    //Serial.println(mainStatusDisplayMode);
+    
+    
+    drawRelayStatus(testRStatus);
+
+
+    if (millis() - OLED_Sleep_timer >= 60000){
+      u8g2.setPowerSave(1);
+      SleepMode = true;
+    }else{
+      u8g2.setPowerSave(0);
+      if (digitalRead(BUTTON1_PIN) && digitalRead(BUTTON2_PIN) && digitalRead(BUTTON3_PIN)) SleepMode = false;
+      
+    }
+    
+    
+  } while ( u8g2.nextPage() );
+}
+
+void restPSTimer(){
+  OLED_Sleep_timer = millis();
+}
+
+void ReadACS(){
+  if (millis() - start_timeloop >= 50){
+      start_timeloop = millis();
+      nnni ++;
+      if (nnni >= 5){
+        nnni=0;
+      }
+      switch (nnni){
+        case 0:
+          ADRMS[0] = ACS1.mA_AC();
+        break;
+        case 1:
+          ADRMS[1] = ACS2.mA_AC();
+        break;
+        case 2:
+          ADRMS[2] = ACS3.mA_AC();
+        break;
+        case 3:
+          ADRMS[3] = ACS4.mA_AC();
+        break;
+        case 4:
+          ADRMS[4] = ACS5.mA_AC();
+        break;
+      
+      }
+  }
+}
+
+
+void drawSUMStatus(){
+  static unsigned long Lasttime;
+  float sumRms = ADRMS[0]+ADRMS[1]+ADRMS[2]+ADRMS[3]+ADRMS[4];
+  u8g2.setFont(u8g2_font_fub20_tr);
+  static String text;
+
+  if (millis() - Lasttime > 1000){
+    Lasttime = millis();
+    if (StatusMode == 1){
+      text = String(sumRms/1000 *110) + "W";
+    }else if (StatusMode == 2){
+      text = String(sumRms/1000) + "A";
+    }
+  }
+  
+  // center text
+  int textWidth = u8g2.getStrWidth(text.c_str());
+  int textX = (128 - textWidth) / 2;
+  u8g2.setDrawColor(1);
+  u8g2.setCursor(textX, 25+15);
+  u8g2.print(text);
+}
+  
+
+void drawAVGStatus(){
+  float sumRms = (ADRMS[0]+ADRMS[1]+ADRMS[2]+ADRMS[3]+ADRMS[4])/5;
+  u8g2.setFont(u8g2_font_fub20_tr);
+  static String text;
+  static unsigned long Lasttime;
+  
+  if (millis() - Lasttime > 1000){
+    Lasttime = millis();
+    if (StatusMode == 1){
+      text = String(sumRms/1000 *110) + "W";
+    }else if (StatusMode == 2){
+      text = String(sumRms/1000) + "A";
+    }
+  }
+  
+  // center text
+  int textWidth = u8g2.getStrWidth(text.c_str());
+  int textX = (128 - textWidth) / 2;
+  u8g2.setDrawColor(1);
+  u8g2.setCursor(textX, 25+15);
+  u8g2.print(text);
+  
+}
+
+void drawALLStatus(){
+  u8g2.setFont(u8g2_font_nokiafc22_tf );
+  static String text[5];
+  static unsigned long Lasttime;
+  if (millis() - Lasttime > 1000){
+    for (int ii; ii<=5;ii++){
+      Serial.println(ii);
+      if (StatusMode == 1){
+        text[ii] = String(ii+1) + ": "+ String(ADRMS[ii]/1000 *110) + "W";
+      }else if (StatusMode == 2){
+        text[ii] = String(ii+1) + ": "+String(ADRMS[ii]/1000) + "A";
+      }
+    }
+    Lasttime = millis();
+  }
+  
+  // center text
+  int textWidth = u8g2.getStrWidth(text[0].c_str());
+  int textX = (128/3 - textWidth) / 2;
+  u8g2.setDrawColor(1);
+  u8g2.setCursor(textX, 25+2);
+  u8g2.print(text[0]);
+  
+  
+  textWidth = u8g2.getStrWidth(text[1].c_str());
+  textX = ((128/3)*3 - textWidth) / 2;
+  u8g2.setDrawColor(1);
+  u8g2.setCursor(textX, 25+2);
+  u8g2.print(text[1]);
+  
+  
+  textWidth = u8g2.getStrWidth(text[2].c_str());
+  textX = ((128/3)*5 - textWidth) / 2;
+  u8g2.setDrawColor(1);
+  u8g2.setCursor(textX, 25+2);
+  u8g2.print(text[2]);
+  
+  textWidth = u8g2.getStrWidth(text[3].c_str());
+  textX = (128/2 - textWidth) / 2;
+  u8g2.setDrawColor(1);
+  u8g2.setCursor(textX, 25+15);
+  u8g2.print(text[3]);
+  
+  textWidth = u8g2.getStrWidth(text[4].c_str());
+  textX = ((128+64) - textWidth) / 2;
+  u8g2.setDrawColor(1);
+  u8g2.setCursor(textX, 25+15);
+  u8g2.print(text[4]);
+  
+}
+
+void drawRelayStatus(bool relays[5]){
+  u8g2.setFont(u8g2_font_open_iconic_www_1x_t);
+  u8g2.setDrawColor(1);
+  u8g2.drawHLine(0, 10, 128);
+  u8g2.drawGlyph(128-11, 10, 72);
+  
+}
+
+int drawMenuBar(String menuItems[3]) {
+  int textX = 0;
+  int textY = MENU_POS_Y;
+  int textWidth = 0;
+  int textXPadding = 4;
+  static int bPress = 0;
+  u8g2.setFont(u8g2_font_6x12_tr);
+  u8g2.setDrawColor(1);
+
+
+  u8g2.drawHLine(0, textY - 11 - 2, 128);
+  // center menu
+  String text = menuItems[1];
+  textWidth = u8g2.getStrWidth(text.c_str());
+  textX = (128 - textWidth) / 2;
+  if (digitalRead(BUTTON2_PIN)) {
+    if (bPress==2){
+      bPress=0;
+      return 2;
+    }
+    u8g2.drawRBox(textX - textXPadding, textY + 2 - 11, textWidth + textXPadding + textXPadding, 11, 2);
+    u8g2.setDrawColor(0);
+  } 
+  if (!digitalRead(BUTTON2_PIN)) {
+    if (bPress==0 && !SleepMode ){
+      bPress = 2;
+    }
+    restPSTimer();
+    u8g2.drawRFrame(textX - textXPadding, textY + 2 - 11, textWidth + textXPadding + textXPadding, 11, 2);
+    u8g2.setDrawColor(1);
+  }
+
+  u8g2.setCursor(textX, textY);
+  u8g2.print(text);
+  u8g2.setDrawColor(1);
+
+
+
+  // left menu
+  text = menuItems[0];
+  textX = textXPadding;
+  textWidth = u8g2.getStrWidth(text.c_str());
+  if (digitalRead(BUTTON1_PIN)) {
+    if (bPress==1){
+      bPress=0;
+      return 1;
+    }
+    u8g2.drawRBox(textX - textXPadding, textY + 2 - 11, textWidth + textXPadding + textXPadding, 11, 2);
+    u8g2.setDrawColor(0);
+  } 
+  if (!digitalRead(BUTTON1_PIN)) {
+    if (bPress==0 && !SleepMode){
+      bPress = 1;
+    }
+    restPSTimer();
+    u8g2.drawRFrame(textX - textXPadding, textY + 2 - 11, textWidth + textXPadding + textXPadding, 11, 2);
+    u8g2.setDrawColor(1);
+  }
+  u8g2.setCursor(textX, textY);
+  u8g2.print(text);
+  u8g2.setDrawColor(1);
+
+
+
+  // right menu
+  text = menuItems[2];
+  textWidth = u8g2.getStrWidth(text.c_str());
+  textX = 128 - textWidth - textXPadding;
+  if (digitalRead(BUTTON3_PIN)) {
+    if (bPress==3){
+      bPress=0;
+      return 3;
+    }
+    u8g2.drawRBox(textX - textXPadding, textY + 2 - 11, textWidth + textXPadding + textXPadding, 11, 2);
+    u8g2.setDrawColor(0);
+  }
+  if (!digitalRead(BUTTON3_PIN)) {
+    if (bPress==0 && !SleepMode){
+      bPress = 3;
+    }
+    restPSTimer();
+    u8g2.drawRFrame(textX - textXPadding, textY + 2 - 11, textWidth + textXPadding + textXPadding, 11, 2);
+    u8g2.setDrawColor(1);
+  }
+  u8g2.setCursor(textX, textY);
+  u8g2.print(text);
+  u8g2.setDrawColor(1);
+  return -1;
+}
