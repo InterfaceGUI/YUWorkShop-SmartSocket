@@ -281,7 +281,7 @@ void drawALLStatus(){
       if (StatusMode == 1){
         text[ii] = String(ii+1) + ": "+ String(ADRMS[ii]/1000 *110) + "W";
       }else if (StatusMode == 2){
-        text[ii] = String(ii+1) + ": "+String(ADRMS[ii]/1000) + "A";
+        text[ii] = String(ii+1) + ": "+String(ADRMS[ii]*0.001) + "A";
       }
     }
     Lasttime = millis();
