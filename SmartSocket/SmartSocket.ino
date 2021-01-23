@@ -54,7 +54,7 @@ ACS712  ACS5(AD5_PIN, 5.0, 4095, 100);
 
 U8G2_SH1106_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 String SelectMenuItems[3];
-String menuItems1[5][3] = {{"MAIN", "Unit", "SETUP"},{"WATT", "Ampere", "Close"},{"Mode","----","BACK"},{"Total","AVG","ALL"},{"CORR","----","BACK"}};
+String menuItems1[5][3] = {{"MAIN", "RESET", "SETUP"},{"WATT", "Ampere", "Close"},{"Mode","Unit","NEXT"},{"Total","AVG","ALL"},{"CORR","----","BACK"}};
 
 bool testRStatus[5] = {0,1,0,0,1};
 
@@ -82,8 +82,25 @@ void setup(void) {
   pinMode(R3_PIN, OUTPUT);
   pinMode(R4_PIN, OUTPUT);
   pinMode(R5_PIN, OUTPUT);
- 
-  Serial.begin(9600);
+
+  
+  digitalWrite(R1_PIN,HIGH);
+  digitalWrite(R2_PIN,HIGH);
+  digitalWrite(R3_PIN,HIGH);
+  digitalWrite(R4_PIN,HIGH);
+  digitalWrite(R5_PIN,HIGH);
+  int sttt = millis();
+  while(millis() - sttt <= 100){
+    Correction(); //歸零RMS
+  }
+  digitalWrite(R1_PIN,LOW);
+  digitalWrite(R2_PIN,LOW);
+  digitalWrite(R3_PIN,LOW);
+  digitalWrite(R4_PIN,LOW);
+  digitalWrite(R5_PIN,LOW);
+  
+  
+  //Serial.begin(9600);
   
   u8g2.begin();
   
@@ -102,6 +119,8 @@ void setup(void) {
   
   u8g2.setFont(u8g2_font_6x10_tr);
   
+
+  
 }
 
 unsigned long OLED_Sleep_timer = millis();
@@ -113,6 +132,9 @@ unsigned long start_timeloop = millis();
 int nnni=0 ;
 
 int mainStatusDisplayMode = 1;
+bool alarms = false;
+int overTime;
+
 
 void loop(void) {
   u8g2.firstPage();
@@ -124,7 +146,12 @@ void loop(void) {
       switch (Cmenu){
         case 0: //頁面0
           if (sss==2){
-            Cmenu = 1;
+            digitalWrite(R1_PIN,LOW);
+            digitalWrite(R2_PIN,LOW);
+            digitalWrite(R3_PIN,LOW);
+            digitalWrite(R4_PIN,LOW);
+            digitalWrite(R5_PIN,LOW);
+            
           }
           if (sss==1){
             Cmenu = 2;
@@ -149,7 +176,7 @@ void loop(void) {
           }else if (sss==1){
             Cmenu = 3;
           }else if (sss==2){
-            
+            Cmenu = 1;
           }
         break;
         case 3: //頁面2
@@ -191,8 +218,8 @@ void loop(void) {
     
     
     drawRelayStatus(testRStatus);
-
-
+    Killpower();
+    
     if (millis() - OLED_Sleep_timer >= 60000){
       u8g2.setPowerSave(1);
       SleepMode = true;
@@ -204,6 +231,35 @@ void loop(void) {
     
     
   } while ( u8g2.nextPage() );
+}
+
+void Killpower(){
+  if (ADRMS[0]+ADRMS[1]+ADRMS[2]+ADRMS[3]+ADRMS[4] >= 5000){
+      if (!alarms){
+        overTime = millis();
+        alarms=true;
+      }
+      
+      if (millis()-overTime > 5000){
+        digitalWrite(R5_PIN,HIGH);
+        
+      }if (millis()-overTime > 8000){
+        digitalWrite(R4_PIN,HIGH);
+        
+      }if (millis()-overTime > 11000){
+        digitalWrite(R3_PIN,HIGH);
+        
+      }if (millis()-overTime > 14000){
+        digitalWrite(R2_PIN,HIGH);
+        
+      }if (millis()-overTime > 17000){
+        digitalWrite(R1_PIN,HIGH);
+        delay(500);
+        Correction();
+      }
+    }else{
+      alarms=false;
+    }
 }
 
 void Correction(){
