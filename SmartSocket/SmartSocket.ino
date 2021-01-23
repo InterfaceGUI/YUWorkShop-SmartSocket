@@ -23,7 +23,7 @@
 #define AD4_PIN 27
 #define AD5_PIN 12
 int ADlist[5] = {AD1_PIN,AD2_PIN,AD3_PIN,AD4_PIN,AD5_PIN};
-int ADRMS[5];
+unsigned int ADRMS[5];
 
 
 #define R1_PIN 13
@@ -54,20 +54,22 @@ ACS712  ACS5(AD5_PIN, 5.0, 4095, 100);
 
 U8G2_SH1106_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 String SelectMenuItems[3];
-String menuItems1[4][3] = {{"MAIN", "Unit", "SETUP"},{"WATT", "Ampere", "Close"},{"Mode","----","BACK"},{"Total","AVG","ALL"}};
+String menuItems1[5][3] = {{"MAIN", "Unit", "SETUP"},{"WATT", "Ampere", "Close"},{"Mode","----","BACK"},{"Total","AVG","ALL"},{"CORR","----","BACK"}};
 
 bool testRStatus[5] = {0,1,0,0,1};
+
+int CRMS[5];
 
 int menuActive = 1;
 int menuSelected = 2;
 void setup(void) {
 
 
-  ACS1.autoMidPoint();
-  ACS2.autoMidPoint();
-  ACS3.autoMidPoint();
-  ACS4.autoMidPoint();
-  ACS5.autoMidPoint();
+  ACS1.autoMidPoint(60);
+  ACS2.autoMidPoint(60);
+  ACS3.autoMidPoint(60);
+  ACS4.autoMidPoint(60);
+  ACS5.autoMidPoint(60);
 
   //按鈕
   pinMode(BUTTON1_PIN, INPUT_PULLUP);
@@ -127,6 +129,9 @@ void loop(void) {
           if (sss==1){
             Cmenu = 2;
           }
+          if (sss==3){
+            Cmenu = 4;
+          }
         break;
         case 1://頁面1
           if (sss==3){
@@ -136,6 +141,7 @@ void loop(void) {
           }else if (sss==2){
             StatusMode = 2;
           }
+          Cmenu = 0;
         break;
         case 2://頁面2
           if (sss==3){
@@ -155,6 +161,16 @@ void loop(void) {
             mainStatusDisplayMode = 2;
           }
           Cmenu = 0;
+        break;
+        case 4: //頁面2
+          if (sss==3){
+            Cmenu = 0;
+          }else if (sss==1){
+            Correction();
+          }else if (sss==2){
+            
+          }
+          
         break;
       }
     }
@@ -190,6 +206,16 @@ void loop(void) {
   } while ( u8g2.nextPage() );
 }
 
+void Correction(){
+  
+  CRMS[0] = max(ACS1.mA_AC(60), CRMS[0]);
+  CRMS[1] = max(ACS2.mA_AC(60), CRMS[0]);
+  CRMS[2] = max(ACS3.mA_AC(60), CRMS[0]);
+  CRMS[3] = max(ACS4.mA_AC(60), CRMS[0]);
+  CRMS[4] = max(ACS5.mA_AC(60), CRMS[0]);
+  
+}
+
 void restPSTimer(){
   OLED_Sleep_timer = millis();
 }
@@ -203,19 +229,19 @@ void ReadACS(){
       }
       switch (nnni){
         case 0:
-          ADRMS[0] = ACS1.mA_AC();
+          ADRMS[0] = max(ACS1.mA_AC(60) - CRMS[0], 0);
         break;
         case 1:
-          ADRMS[1] = ACS2.mA_AC();
+          ADRMS[1] = max(ACS2.mA_AC(60) - CRMS[1], 0);
         break;
         case 2:
-          ADRMS[2] = ACS3.mA_AC();
+          ADRMS[2] = max(ACS3.mA_AC(60) - CRMS[2], 0);
         break;
         case 3:
-          ADRMS[3] = ACS4.mA_AC();
+          ADRMS[3] = max(ACS4.mA_AC(60) - CRMS[3], 0);
         break;
         case 4:
-          ADRMS[4] = ACS5.mA_AC();
+          ADRMS[4] = max(ACS5.mA_AC(60) - CRMS[4], 0);
         break;
       
       }
