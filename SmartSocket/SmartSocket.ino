@@ -83,22 +83,7 @@ void setup(void) {
   pinMode(R4_PIN, OUTPUT);
   pinMode(R5_PIN, OUTPUT);
 
-  
-  digitalWrite(R1_PIN,HIGH);
-  digitalWrite(R2_PIN,HIGH);
-  digitalWrite(R3_PIN,HIGH);
-  digitalWrite(R4_PIN,HIGH);
-  digitalWrite(R5_PIN,HIGH);
-  int sttt = millis();
-  while(millis() - sttt <= 100){
-    Correction(); //歸零RMS
-  }
-  digitalWrite(R1_PIN,LOW);
-  digitalWrite(R2_PIN,LOW);
-  digitalWrite(R3_PIN,LOW);
-  digitalWrite(R4_PIN,LOW);
-  digitalWrite(R5_PIN,LOW);
-  
+
   
   //Serial.begin(9600);
   
@@ -115,6 +100,22 @@ void setup(void) {
     
     u8g2.drawFrame(0,0,128,64);
   } while ( u8g2.nextPage() );
+    
+  digitalWrite(R1_PIN,HIGH);
+  digitalWrite(R2_PIN,HIGH);
+  digitalWrite(R3_PIN,HIGH);
+  digitalWrite(R4_PIN,HIGH);
+  digitalWrite(R5_PIN,HIGH);
+  int sttt = millis();
+  while(millis() - sttt <= 100){
+    Correction(); //歸零RMS
+  }
+  digitalWrite(R1_PIN,LOW);
+  digitalWrite(R2_PIN,LOW);
+  digitalWrite(R3_PIN,LOW);
+  digitalWrite(R4_PIN,LOW);
+  digitalWrite(R5_PIN,LOW);
+  
   delay(1000);
   
   u8g2.setFont(u8g2_font_6x10_tr);
