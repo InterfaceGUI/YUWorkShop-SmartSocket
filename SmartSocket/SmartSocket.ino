@@ -2,14 +2,7 @@
 
 #include <Arduino.h>
 #include <U8g2lib.h>
-
-#ifdef U8X8_HAVE_HW_SPI
-#include <SPI.h>
-#endif
-#ifdef U8X8_HAVE_HW_I2C
 #include <Wire.h>
-#endif
-
 
 #include "ACS712.h"
 
@@ -21,7 +14,7 @@
 #define AD2_PIN 25
 #define AD3_PIN 26
 #define AD4_PIN 27
-#define AD5_PIN 12
+#define AD5_PIN 32
 int ADlist[5] = {AD1_PIN,AD2_PIN,AD3_PIN,AD4_PIN,AD5_PIN};
 unsigned int ADRMS[5];
 
@@ -35,7 +28,7 @@ unsigned int ADRMS[5];
 #define MENU_POS_Y 62
 #define MENU_POS_Y_HIDDEN 76
 
-
+#define Trigger_current 8181 //mA
 
 // Arduino UNO has 5.0 volt with a max ADC value of 1023 steps
 // ACS712 5A  uses 185 mV per A
@@ -53,17 +46,14 @@ ACS712  ACS5(AD5_PIN, 5.0, 4095, 100);
 
 
 U8G2_SH1106_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
-String SelectMenuItems[3];
-String menuItems1[5][3] = {{"MAIN", "RESET", "SETUP"},{"WATT", "Ampere", "Close"},{"Mode","Unit","NEXT"},{"Total","AVG","ALL"},{"CORR","----","BACK"}};
 
-bool testRStatus[5] = {0,1,0,0,1};
+unsigned long onTime = 0;
 
 int CRMS[5];
 
 int menuActive = 1;
 int menuSelected = 2;
 void setup(void) {
-
 
   ACS1.autoMidPoint(60);
   ACS2.autoMidPoint(60);
@@ -121,7 +111,7 @@ void setup(void) {
   u8g2.setFont(u8g2_font_6x10_tr);
   
 
-  
+  onTime = millis();
 }
 
 unsigned long OLED_Sleep_timer = millis();
@@ -130,12 +120,18 @@ int Cmenu = 0; //頁面選擇
 int StatusMode = 1;
 int ADreads = 0;
 unsigned long start_timeloop = millis();
+unsigned long Menu_timeout = millis();
 int nnni=0 ;
 
 int mainStatusDisplayMode = 1;
 bool alarms = false;
 int overTime;
 
+String SelectMenuItems[3];
+String menuItems1[5][3] = {{"MAIN", "RESET", "SETUP"},{"WATT", "Ampere", "Close"},{"Mode","Unit","NEXT"},{"Total","AVG","ALL"},{"CORR","----","BACK"}};
+
+
+int TCount = 0; //繼電器斷電的順序 
 
 void loop(void) {
   u8g2.firstPage();
@@ -152,7 +148,7 @@ void loop(void) {
             digitalWrite(R3_PIN,LOW);
             digitalWrite(R4_PIN,LOW);
             digitalWrite(R5_PIN,LOW);
-            
+            TCount=0;
           }
           if (sss==1){
             Cmenu = 2;
@@ -202,8 +198,15 @@ void loop(void) {
         break;
       }
     }
+    if (Cmenu != 0){
+      if (millis() - Menu_timeout >10000){
+        Cmenu= 0;
+      }
+    }else{
+      Menu_timeout = millis();
+    }
     ReadACS();//電流讀取
-
+    
     switch (mainStatusDisplayMode){
       case 1:
         drawSUMStatus();//電壓電流狀態
@@ -218,9 +221,8 @@ void loop(void) {
     //Serial.println(mainStatusDisplayMode);
     
     
-    drawRelayStatus(testRStatus);
     Killpower();
-    
+    displayWh();
     if (millis() - OLED_Sleep_timer >= 60000){
       u8g2.setPowerSave(1);
       SleepMode = true;
@@ -229,35 +231,105 @@ void loop(void) {
       if (digitalRead(BUTTON1_PIN) && digitalRead(BUTTON2_PIN) && digitalRead(BUTTON3_PIN)) SleepMode = false;
       
     }
-    
+    //Serial.println(analogRead(AD5_PIN));
     
   } while ( u8g2.nextPage() );
 }
 
+
+int dd,hh,mm,ss ;
+float kwh=0;
+float wh=0;
+float amps;
+float sumssss;
+void displayWh(){
+
+  u8g2.setFont(u8g2_font_profont11_tr);
+  String text;
+  ss = ((millis()-onTime)/1000);
+  mm = ss / 60;
+  hh = mm / 60;
+  dd = hh / 24;
+  
+  text = "T:" + String(dd) + "." + String(hh%24) + ":" +String(mm%60)/*+":"+String(ss%60)*/;
+  
+  // center text
+  //int textWidth = u8g2.getStrWidth(text.c_str());
+  //int textX = (128 - textWidth) / 2;
+  u8g2.setDrawColor(1);
+  u8g2.setCursor(1,10);
+  u8g2.print(text);
+
+  static unsigned long Lasttime;
+  if (millis() - Lasttime > 1000){
+    sumssss = ADRMS[0]+ADRMS[1]+ADRMS[2]+ADRMS[3]+ADRMS[4];
+    amps = sumssss/1000;
+    Lasttime=millis();
+  }
+  
+  if (wh > 1000){
+    kwh += (amps*110)/3600000;
+    text = String(kwh,3)+" kWh";
+  }else{
+    wh += (amps*110)/3600;
+    text = String(wh,3)+" Wh";
+  }
+  
+  int textWidth = u8g2.getStrWidth(text.c_str());
+  int textX = (128 - textWidth);
+  u8g2.setDrawColor(1);
+  u8g2.setCursor(textX ,10);
+  u8g2.print(text);
+}
+
 void Killpower(){
-  if (ADRMS[0]+ADRMS[1]+ADRMS[2]+ADRMS[3]+ADRMS[4] >= 5000){
+  if (ADRMS[0]+ADRMS[1]+ADRMS[2]+ADRMS[3]+ADRMS[4] >= Trigger_current){
       if (!alarms){
         overTime = millis();
         alarms=true;
       }
-      
-      if (millis()-overTime > 5000){
-        digitalWrite(R5_PIN,HIGH);
-        
-      }if (millis()-overTime > 8000){
-        digitalWrite(R4_PIN,HIGH);
-        
-      }if (millis()-overTime > 11000){
-        digitalWrite(R3_PIN,HIGH);
-        
-      }if (millis()-overTime > 14000){
-        digitalWrite(R2_PIN,HIGH);
-        
-      }if (millis()-overTime > 17000){
-        digitalWrite(R1_PIN,HIGH);
-        delay(500);
-        Correction();
+
+      static bool TCountT;
+      if (((millis()-overTime)/1000)%4 == 3 && !TCountT){
+        TCount++;
+        TCountT = true;
+      }else if (((millis()-overTime)/1000)%4 != 3){
+        TCountT = false;
       }
+      
+     
+      switch (TCount){
+        case 0:
+        break;
+        case 1:
+          digitalWrite(R5_PIN,HIGH);
+          
+        break;
+        
+        case 2:
+          digitalWrite(R4_PIN,HIGH);
+          
+        break;
+        
+        case 3:
+          digitalWrite(R3_PIN,HIGH);
+          
+        break;
+        
+        case 4:
+          digitalWrite(R2_PIN,HIGH);
+          
+        break;
+        
+        case 5:
+          digitalWrite(R1_PIN,HIGH);
+          delay(500);
+          Correction();
+          
+        break;
+        
+      }
+
     }else{
       alarms=false;
     }
@@ -311,8 +383,8 @@ void drawSUMStatus(){
   float sumRms = ADRMS[0]+ADRMS[1]+ADRMS[2]+ADRMS[3]+ADRMS[4];
   u8g2.setFont(u8g2_font_fub20_tr);
   static String text;
-
-  if (millis() - Lasttime > 1000){
+  
+  if (millis() - Lasttime > 500){
     Lasttime = millis();
     if (StatusMode == 1){
       text = String(sumRms/1000 *110) + "W";
@@ -325,8 +397,14 @@ void drawSUMStatus(){
   int textWidth = u8g2.getStrWidth(text.c_str());
   int textX = (128 - textWidth) / 2;
   u8g2.setDrawColor(1);
-  u8g2.setCursor(textX, 25+15);
+  u8g2.setCursor(textX, 25+20);
   u8g2.print(text);
+  
+  u8g2.setFont(u8g2_font_helvB08_tr);
+  
+  u8g2.setDrawColor(1);
+  u8g2.setCursor(1, 21);
+  u8g2.print("MAX Watts: " + String(((Trigger_current/1000)*110))+"W");
 }
   
 
@@ -349,7 +427,7 @@ void drawAVGStatus(){
   int textWidth = u8g2.getStrWidth(text.c_str());
   int textX = (128 - textWidth) / 2;
   u8g2.setDrawColor(1);
-  u8g2.setCursor(textX, 25+15);
+  u8g2.setCursor(textX, 25+20);
   u8g2.print(text);
   
 }
@@ -359,7 +437,7 @@ void drawALLStatus(){
   static String text[5];
   static unsigned long Lasttime;
   if (millis() - Lasttime > 1000){
-    for (int ii; ii<=5;ii++){
+    for (int ii; ii<=4;ii++){
       Serial.println(ii);
       if (StatusMode == 1){
         text[ii] = String(ii+1) + ": "+ String(ADRMS[ii]/1000 *110) + "W";
@@ -404,16 +482,10 @@ void drawALLStatus(){
   u8g2.print(text[4]);
   
 }
-
-void drawRelayStatus(bool relays[5]){
-  u8g2.setFont(u8g2_font_open_iconic_www_1x_t);
-  u8g2.setDrawColor(1);
-  u8g2.drawHLine(0, 10, 128);
-  u8g2.drawGlyph(128-11, 10, 72);
-  
-}
-
 int drawMenuBar(String menuItems[3]) {
+  u8g2.setDrawColor(1);
+  u8g2.drawHLine(0, 12, 128);
+  
   int textX = 0;
   int textY = MENU_POS_Y;
   int textWidth = 0;
