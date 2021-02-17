@@ -53,6 +53,9 @@ int CRMS[5];
 
 int menuActive = 1;
 int menuSelected = 2;
+/*#######################################################
+ *                       SETUP                          #
+ ########################################################*/
 void setup(void) {
 
   ACS1.autoMidPoint(60);
@@ -133,6 +136,9 @@ String menuItems1[5][3] = {{"MAIN", "RESET", "SETUP"},{"WATT", "Ampere", "Close"
 
 int TCount = 0; //繼電器斷電的順序 
 
+/*#######################################################
+ *                    L O O P                           #
+ ########################################################*/
 void loop(void) {
   u8g2.firstPage();
   
@@ -282,6 +288,9 @@ void displayWh(){
   u8g2.print(text);
 }
 
+/*#######################################################
+ *                    總順序斷電                         #
+ ########################################################*/
 void Killpower(){
   if (ADRMS[0]+ADRMS[1]+ADRMS[2]+ADRMS[3]+ADRMS[4] >= Trigger_current){
       if (!alarms){
@@ -334,7 +343,9 @@ void Killpower(){
       alarms=false;
     }
 }
-
+/*#######################################################
+ *                       Other                          #
+ ########################################################*/
 void Correction(){
   
   CRMS[0] = max(ACS1.mA_AC(60), CRMS[0]);
@@ -349,6 +360,10 @@ void restPSTimer(){
   OLED_Sleep_timer = millis();
 }
 
+
+/*#######################################################
+ *                    ReadACS                           #
+ ########################################################*/
 void ReadACS(){
   if (millis() - start_timeloop >= 50){
       start_timeloop = millis();
@@ -377,7 +392,9 @@ void ReadACS(){
   }
 }
 
-
+/*#######################################################
+ *                    Menu - Mode                       #
+ ########################################################*/
 void drawSUMStatus(){
   static unsigned long Lasttime;
   float sumRms = ADRMS[0]+ADRMS[1]+ADRMS[2]+ADRMS[3]+ADRMS[4];
@@ -482,6 +499,9 @@ void drawALLStatus(){
   u8g2.print(text[4]);
   
 }
+/*#######################################################
+ *                 MainPage - Display                   #
+ ########################################################*/
 int drawMenuBar(String menuItems[3]) {
   u8g2.setDrawColor(1);
   u8g2.drawHLine(0, 12, 128);
