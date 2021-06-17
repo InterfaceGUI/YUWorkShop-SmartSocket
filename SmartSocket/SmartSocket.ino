@@ -1,3 +1,19 @@
+#include "BluetoothSerial.h"
+
+#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
+#error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
+#endif
+
+#include <FastLED.h>
+#define LED_PIN     25
+#define NUM_LEDS    5
+#define BRIGHTNESS  255
+#define LED_TYPE    WS2812B
+#define COLOR_ORDER GRB
+CRGB leds[NUM_LEDS];
+CRGBPalette16 currentPalette;
+TBlendType    currentBlending;
+#define UPDATES_PER_SECOND 120
 
 
 #include <Arduino.h>
@@ -10,11 +26,11 @@
 #define BUTTON2_PIN 19
 #define BUTTON3_PIN 23
 
-#define AD1_PIN 33
-#define AD2_PIN 25
-#define AD3_PIN 26
-#define AD4_PIN 27
-#define AD5_PIN 32
+#define AD1_PIN 32
+#define AD2_PIN 33
+#define AD3_PIN 34
+#define AD4_PIN 35
+#define AD5_PIN 36
 int ADlist[5] = {AD1_PIN,AD2_PIN,AD3_PIN,AD4_PIN,AD5_PIN};
 unsigned int ADRMS[5];
 
@@ -44,8 +60,14 @@ ACS712  ACS4(AD4_PIN, 5.0, 4095, 100);
 ACS712  ACS5(AD5_PIN, 5.0, 4095, 100);
 
 
-
 U8G2_SH1106_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
+
+//藍芽
+BluetoothSerial SerialBT;
+
+boolean PairSuccess = false;
+boolean RequestPending = false;
+uint32_t numValcode = 0;
 
 unsigned long onTime = 0;
 
@@ -76,9 +98,10 @@ void setup(void) {
   pinMode(R4_PIN, OUTPUT);
   pinMode(R5_PIN, OUTPUT);
 
-
+  FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS).setCorrection( TypicalLEDStrip );
+  FastLED.setBrightness(  BRIGHTNESS );
   
-  //Serial.begin(9600);
+  Serial.begin(115200);
   
   u8g2.begin();
   
@@ -93,27 +116,30 @@ void setup(void) {
     
     u8g2.drawFrame(0,0,128,64);
   } while ( u8g2.nextPage() );
-    
+  
+  digitalWrite(R1_PIN,LOW);
+  digitalWrite(R2_PIN,LOW);
+  digitalWrite(R3_PIN,LOW);
+  digitalWrite(R4_PIN,LOW);
+  digitalWrite(R5_PIN,LOW); 
+  int sttt = millis();
+  while(millis() - sttt <= 500){
+    Correction(); //歸零RMS
+  }
   digitalWrite(R1_PIN,HIGH);
   digitalWrite(R2_PIN,HIGH);
   digitalWrite(R3_PIN,HIGH);
   digitalWrite(R4_PIN,HIGH);
   digitalWrite(R5_PIN,HIGH);
-  int sttt = millis();
-  while(millis() - sttt <= 100){
-    Correction(); //歸零RMS
-  }
-  digitalWrite(R1_PIN,LOW);
-  digitalWrite(R2_PIN,LOW);
-  digitalWrite(R3_PIN,LOW);
-  digitalWrite(R4_PIN,LOW);
-  digitalWrite(R5_PIN,LOW);
+
+  SerialBT.enableSSP();
+  SerialBT.onConfirmRequest(BTConfirmRequestCallback);
+  SerialBT.onAuthComplete(BTAuthCompleteCallback);
+  SerialBT.begin("YUSmartSocket [YUSS]");; //Bluetooth device name
   
   delay(1000);
   
   u8g2.setFont(u8g2_font_6x10_tr);
-  
-
   onTime = millis();
 }
 
@@ -131,10 +157,11 @@ bool alarms = false;
 int overTime;
 
 String SelectMenuItems[3];
-String menuItems1[5][3] = {{"MAIN", "RESET", "SETUP"},{"WATT", "Ampere", "Close"},{"Mode","Unit","NEXT"},{"Total","AVG","ALL"},{"CORR","----","BACK"}};
-
+String menuItems1[6][3] = {{"MAIN", "RESET", "SETUP"},{"WATT", "Ampere", "Close"},{"Mode","Unit","NEXT"},{"Total","AVG","ALL"},{"CORR","BT|Conf","BACK"},{"Pair!","Deny","BACK"}};
 
 int TCount = 0; //繼電器斷電的順序 
+bool RelayStatus[5] = {true,true,true,true,true};
+int relayPIN[5] = {13,14,15,16,17};
 
 /*#######################################################
  *                    L O O P                           #
@@ -143,17 +170,23 @@ void loop(void) {
   u8g2.firstPage();
   
   do {
+    for (int i=0; i <5; i++){
+      RelayStatus[i] = digitalRead(relayPIN[i]);
+      leds[i] = (RelayStatus[i] == true)? CRGB::Green : CRGB::Red;
+    }
+
+    FastLED.show();
     int sss;
     sss = drawMenuBar(menuItems1[Cmenu]);
     if (sss!=-1 ){
       switch (Cmenu){
         case 0: //頁面0
           if (sss==2){
-            digitalWrite(R1_PIN,LOW);
-            digitalWrite(R2_PIN,LOW);
-            digitalWrite(R3_PIN,LOW);
-            digitalWrite(R4_PIN,LOW);
-            digitalWrite(R5_PIN,LOW);
+            digitalWrite(R1_PIN,HIGH);
+            digitalWrite(R2_PIN,HIGH);
+            digitalWrite(R3_PIN,HIGH);
+            digitalWrite(R4_PIN,HIGH);
+            digitalWrite(R5_PIN,HIGH);
             TCount=0;
           }
           if (sss==1){
@@ -192,15 +225,25 @@ void loop(void) {
           }
           Cmenu = 0;
         break;
-        case 4: //頁面2
+        case 4: //{"CORR","BT","BACK"}
           if (sss==3){
             Cmenu = 0;
           }else if (sss==1){
             Correction();
           }else if (sss==2){
-            
+            Cmenu = 5;
           }
-          
+        break;
+        case 5: //{"Pair!","Deny","BACK"}
+          if (sss==3){
+            Cmenu = 0;
+          }else if (sss==1){
+            SerialBT.confirmReply(true);
+            Cmenu = 0;
+          }else if (sss==2){
+            SerialBT.confirmReply(false);
+            Cmenu = 0;
+          }
         break;
       }
     }
@@ -212,21 +255,24 @@ void loop(void) {
       Menu_timeout = millis();
     }
     ReadACS();//電流讀取
-    
-    switch (mainStatusDisplayMode){
-      case 1:
-        drawSUMStatus();//電壓電流狀態
-      break;
-      case 2:
-        drawAVGStatus();//電壓電流狀態
-      break;
-      case 3:
-        drawALLStatus();//電壓電流狀態
-      break;
+
+    if (Cmenu == 5){
+      ShowCode();
+    }else{
+      switch (mainStatusDisplayMode){
+        case 1:
+          drawSUMStatus();//電壓電流狀態
+        break;
+        case 2:
+          drawAVGStatus();//電壓電流狀態
+        break;
+        case 3:
+          drawALLStatus();//電壓電流狀態
+        break;
+      }
     }
     //Serial.println(mainStatusDisplayMode);
-    
-    
+    BTmsgLoop();
     Killpower();
     displayWh();
     if (millis() - OLED_Sleep_timer >= 60000){
@@ -248,6 +294,7 @@ float kwh=0;
 float wh=0;
 float amps;
 float sumssss;
+
 void displayWh(){
 
   u8g2.setFont(u8g2_font_profont11_tr);
@@ -268,19 +315,10 @@ void displayWh(){
 
   static unsigned long Lasttime;
   if (millis() - Lasttime > 1000){
-    sumssss = ADRMS[0]+ADRMS[1]+ADRMS[2]+ADRMS[3]+ADRMS[4];
-    amps = sumssss/1000;
+    kwh += ((ADRMS[0]+ADRMS[1]+ADRMS[2]+ADRMS[3]+ADRMS[4]/1000)*110)/3600000;
     Lasttime=millis();
   }
-  
-  if (wh > 1000){
-    kwh += (amps*110)/3600000;
-    text = String(kwh,3)+" kWh";
-  }else{
-    wh += (amps*110)/3600;
-    text = String(wh,3)+" Wh";
-  }
-  
+  text = String(kwh,2)+" kWh";
   int textWidth = u8g2.getStrWidth(text.c_str());
   int textX = (128 - textWidth);
   u8g2.setDrawColor(1);
@@ -391,13 +429,33 @@ void ReadACS(){
       }
   }
 }
+///RequestPending
+/*#######################################################
+ *                 Menu - showBLE                       #
+ ########################################################*/
+
+void ShowCode(){
+  u8g2.setFont(u8g2_font_fub20_tr);
+  static String text;
+
+  text = String(numValcode);
+  
+  // center text
+  int textWidth = u8g2.getStrWidth(text.c_str());
+  int textX = (128 - textWidth) / 2;
+  u8g2.setDrawColor(1);
+  u8g2.setCursor(textX, 25+20);
+  u8g2.print(text);
+}
+
 
 /*#######################################################
  *                    Menu - Mode                       #
  ########################################################*/
+float sumRms=0;
 void drawSUMStatus(){
   static unsigned long Lasttime;
-  float sumRms = ADRMS[0]+ADRMS[1]+ADRMS[2]+ADRMS[3]+ADRMS[4];
+  sumRms = ADRMS[0]+ADRMS[1]+ADRMS[2]+ADRMS[3]+ADRMS[4];
   u8g2.setFont(u8g2_font_fub20_tr);
   static String text;
   
@@ -593,4 +651,122 @@ int drawMenuBar(String menuItems[3]) {
   u8g2.print(text);
   u8g2.setDrawColor(1);
   return -1;
+}
+
+/*#######################################################
+ *                         BT                           #
+ ########################################################*/
+boolean confirmRequestPending = true;
+
+void BTConfirmRequestCallback(uint32_t numVal){
+  restPSTimer();
+  confirmRequestPending = true;
+  RequestPending = true;
+  numValcode = numVal;
+  Cmenu = 5;
+}
+
+void BTAuthCompleteCallback(boolean success){
+  confirmRequestPending = false;
+  if (success)
+  {
+    //Serial.println("Pairing success!!");
+    Cmenu = 0;
+    PairSuccess = true;
+  }
+  else
+  {
+    Cmenu = 0;
+    PairSuccess = false;
+  }
+}
+
+boolean stringComplete;
+char cmd[1];
+char inputStr[20];
+int chrlen = 0;
+
+void BTmsgLoop(){
+
+  if (SerialBT.available()){
+    char inChar = (char)SerialBT.read();
+    inputStr[chrlen] = inChar;
+    chrlen++;
+    if (inChar == 10) {
+       stringComplete = true;
+       inputStr[chrlen] = '\0';
+    }
+  }
+  if (stringComplete){
+    substr(cmd, inputStr, 0, 1);
+    stringComplete = false;
+    Serial.print(inputStr);
+    Serial.print("-");
+    Serial.println(cmd[0]);
+    switch (cmd[0]){
+      case 'a':
+        SerialBT.println("W"+String(sumRms/1000 *110));
+        break;
+      case 'b':
+        digitalWrite(R1_PIN,HIGH);
+        SerialBT.println("L11");
+        break;
+      case 'c':
+        digitalWrite(R2_PIN,HIGH);
+        SerialBT.println("L21");
+        break;
+      case 'd':
+        SerialBT.println("L31");
+        digitalWrite(R3_PIN,HIGH);
+        break;
+      case 'e':
+        SerialBT.println("L41");
+        digitalWrite(R4_PIN,HIGH);
+        break;
+      case 'f':
+        SerialBT.println("L51");
+        digitalWrite(R5_PIN,HIGH);
+        break;
+      case 'g':
+        SerialBT.println("L10");
+        digitalWrite(R1_PIN,LOW);
+        break;
+      case 'h':
+        SerialBT.println("L20");
+        digitalWrite(R2_PIN,LOW);
+        break;
+      case 'i':
+        SerialBT.println("L30");
+        digitalWrite(R3_PIN,LOW);
+        break;
+      case 'j':
+        SerialBT.println("L40");
+        digitalWrite(R4_PIN,LOW);
+        break;
+      case 'k':
+        SerialBT.println("L50");
+        digitalWrite(R5_PIN,LOW);
+        break;
+      case 'l':
+        SerialBT.println("OK");
+        digitalWrite(R1_PIN,HIGH);
+        digitalWrite(R2_PIN,HIGH);
+        digitalWrite(R3_PIN,HIGH);
+        digitalWrite(R4_PIN,HIGH);
+        digitalWrite(R5_PIN,HIGH);
+        break;
+    }
+    chrlen = 0;
+  }
+  /*
+   * digitalWrite(R1_PIN,HIGH);
+  digitalWrite(R2_PIN,HIGH);
+  digitalWrite(R3_PIN,HIGH);
+  digitalWrite(R4_PIN,HIGH);
+  digitalWrite(R5_PIN,HIGH);
+   */
+}
+void substr(char *dest, const char* src, unsigned int start, unsigned int cnt) {
+  strncpy(dest, src + start, cnt);
+  dest[cnt] = 0;
 }
