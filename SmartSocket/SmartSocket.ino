@@ -9,7 +9,7 @@
 #define NUM_LEDS    5
 #define BRIGHTNESS  255
 #define LED_TYPE    WS2812B
-#define COLOR_ORDER GRB
+#define COLOR_ORDER RGB
 CRGB leds[NUM_LEDS];
 CRGBPalette16 currentPalette;
 TBlendType    currentBlending;
@@ -171,8 +171,8 @@ void loop(void) {
   
   do {
     for (int i=0; i <5; i++){
-      RelayStatus[i] = digitalRead(relayPIN[i]);
-      leds[i] = (RelayStatus[i] == true)? CRGB::Green : CRGB::Red;
+      RelayStatus[4-i] = digitalRead(relayPIN[i]);
+      leds[i] = (RelayStatus[i] == true)? CRGB::Blue : CRGB::Red;
     }
 
     FastLED.show();
@@ -349,27 +349,27 @@ void Killpower(){
         case 0:
         break;
         case 1:
-          digitalWrite(R5_PIN,HIGH);
+          digitalWrite(R5_PIN,LOW);
           
         break;
         
         case 2:
-          digitalWrite(R4_PIN,HIGH);
+          digitalWrite(R4_PIN,LOW);
           
         break;
         
         case 3:
-          digitalWrite(R3_PIN,HIGH);
+          digitalWrite(R3_PIN,LOW);
           
         break;
         
         case 4:
-          digitalWrite(R2_PIN,HIGH);
+          digitalWrite(R2_PIN,LOW);
           
         break;
         
         case 5:
-          digitalWrite(R1_PIN,HIGH);
+          digitalWrite(R1_PIN,LOW);
           delay(500);
           Correction();
           
